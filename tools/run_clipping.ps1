@@ -74,7 +74,24 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ── 2. 決定要處理哪封信 ──────────────────────────────────────
-$downloads = Join-Path $env:USERPROFILE 'Downloads'
+# 不要寫死 %USERPROFILE%\Downloads。公司／學校的 OneDrive 常把「桌面」「文件」
+# 「下載」整組搬進 OneDrive 資料夾，寫死的話會變成「檔案明明就在下載裡，
+# 程式卻說找不到」—— 這種錯很難自己看出原因。登錄檔記的才是真正的位置。
+function Get-DownloadsPath {
+    $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders'
+    $guid = '{374DE290-123F-4565-9164-39C4925E467B}'   # KNOWNFOLDERID: Downloads
+    try {
+        $raw = (Get-ItemProperty -Path $key -Name $guid -ErrorAction Stop).$guid
+        if ($raw) {
+            # 值可能長成 %USERPROFILE%\Downloads，要自己展開環境變數
+            $path = [Environment]::ExpandEnvironmentVariables($raw)
+            if (Test-Path $path) { return $path }
+        }
+    } catch {}
+    return (Join-Path $env:USERPROFILE 'Downloads')
+}
+
+$downloads = Get-DownloadsPath
 
 if (-not $Eml) {
     # 沒指定就抓「下載」裡最新的一封榮董新聞
