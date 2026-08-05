@@ -30,6 +30,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 from docx.table import Table
+from docx.text.paragraph import Paragraph
 
 from extractors import HEADERS, TIMEOUT, DEFAULT_REPORTER
 
@@ -114,18 +115,58 @@ def append_block(doc, element):
 # 底稿處理
 # ─────────────────────────────────────────────────────────────
 
+class Proto:
+    """從底稿複製下來的版型零件。
+
+    這些東西自己用 python-docx 的 API 造都會漏掉細節（黑底、白框線、浮動定位、
+    看不見卻很關鍵的字級），複製底稿的 XML 最保險。
+    """
+
+    def __init__(self, table, gap, title):
+        self.table = table    # 媒體／日期／記者的三列表格
+        self.gap = gap        # 表格與標題之間的空段落
+        self.title = title    # 24pt 粗體置中的標題段落
+
+
+def _block_prototypes(tbl_el, path):
+    """從底稿的一則新聞裡，抓出「空段落」與「標題段落」兩個原型。
+
+    底稿的一則長這樣：表格 → 空段落 ×2 → 標題 → (圖) → 內文。
+
+    那兩個空段落看起來只是留白，其實帶著 24pt 字級與 12pt 段前距，
+    兩個疊起來約 1 吋。這高度是必要的：資訊表是浮動表格（tblpPr），
+    Word 會讓後面的文字繞到它右邊，高度不夠標題就跑到表格旁邊去。
+    自己 add_paragraph() 造的是 12pt 無段距，只有需要高度的三分之一。
+    """
+    gap = None
+    el = tbl_el.getnext()
+    while el is not None and el.tag == qn("w:p"):
+        if el.findall(".//" + qn("w:t")):          # 有字了，這是標題
+            if gap is None:
+                break
+            return copy.deepcopy(gap), copy.deepcopy(el)
+        if gap is None:
+            gap = el
+        el = el.getnext()
+
+    raise SystemExit(
+        f"底稿 {path} 的表格後面不是「空段落＋標題」，版型可能被改過。\n"
+        f"換一份確定正常的成品當底稿（--template）。")
+
+
 def load_template(path):
     """開啟底稿，保留封面，清掉第一個分頁之後的所有內容。
 
-    回傳 (doc, 表格原型)。表格原型要在清空前先複製起來，
-    清空後 doc.tables 就空了。
+    回傳 (doc, 版型零件)。零件要在清空前先複製起來，清空後就找不到了。
     """
     doc = Document(str(path))
 
     if not doc.tables:
         raise SystemExit(f"底稿 {path} 裡沒有表格，可能不是每日新聞剪報的成品檔")
     # 挑一個欄寬中庸的當原型（欄寬是自動調整的，複製哪個都會再依內容伸縮）
-    proto_tbl = copy.deepcopy(doc.tables[len(doc.tables) // 2]._tbl)
+    tbl_el = doc.tables[len(doc.tables) // 2]._tbl
+    gap_el, title_el = _block_prototypes(tbl_el, path)
+    proto = Proto(table=copy.deepcopy(tbl_el), gap=gap_el, title=title_el)
 
     body = doc.element.body
     children = list(body.iterchildren())
@@ -142,7 +183,7 @@ def load_template(path):
     if dropped:
         print(f"  清掉底稿殘留的 {dropped} 張孤兒圖")
 
-    return doc, proto_tbl
+    return doc, proto
 
 
 def prune_unused_images(doc) -> int:
@@ -213,17 +254,18 @@ def add_page_break(doc):
     p.add_run().add_break(WD_BREAK.PAGE)
 
 
-# 資訊表是浮動表格（tblpPr），Word 會讓後面的文字繞到它右邊。
-# 底稿靠兩個 12pt 空段落把高度讓開，標題才會落在表格正下方而不是旁邊。
-# 底稿 35 個表格全部都是 2 個，這是版型的一部分，不是誰多按了 Enter。
+# 底稿 35 個表格後面全部都是 2 個空段落，這是版型的一部分，不是誰多按了 Enter。
 TABLE_GAP_PARAS = 2
 
 
-def add_table_gap(doc):
-    """表格與標題之間的留白。少了它標題會跑到表格右邊。"""
+def add_table_gap(doc, proto_gap):
+    """表格與標題之間的留白。少了它標題會被浮動表格繞排到右邊。
+
+    複製底稿的原段落而不是自己造，理由見 _gap_prototype()：
+    那個「空」段落的字級決定了高度，高度決定了標題落在哪。
+    """
     for _ in range(TABLE_GAP_PARAS):
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        append_block(doc, copy.deepcopy(proto_gap))
 
 
 # 表格欄寬估算用（單位 twips，1 in = 1440）
@@ -276,12 +318,16 @@ def add_info_table(doc, proto_tbl, media, date, reporter):
     return tbl
 
 
-def add_title(doc, title: str):
-    p = doc.add_paragraph(style=BODY_STYLE)
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run(title)
-    run.bold = True
-    run.font.size = Pt(TITLE_PT)
+def add_title(doc, proto_title, title: str):
+    """標題也複製底稿的原段落，只換文字。
+
+    自己組出來的雖然也是 24pt 粗體置中，但少了 bCs／szCs（中日韓字型的粗體與
+    字級是分開的屬性）和 rFonts hint，細看就不一樣。既然底稿在手上，用複製的。
+    """
+    el = copy.deepcopy(proto_title)
+    append_block(doc, el)
+    p = Paragraph(el, doc)
+    set_paragraph_text(p, title)
     return p
 
 
@@ -346,15 +392,15 @@ def add_image_placeholder(doc, url: str):
     run.bold = True
 
 
-def add_news_block(doc, art: dict, proto_tbl, stats: dict):
+def add_news_block(doc, art: dict, proto: "Proto", stats: dict):
     """產生一則新聞：分頁 → 表格 → 留白 → 標題 → 圖片 → 內文（順序見實檔量測）。"""
     add_page_break(doc)
-    add_info_table(doc, proto_tbl,
+    add_info_table(doc, proto.table,
                    art.get("media", ""),
                    art.get("date", ""),
                    art.get("reporter") or DEFAULT_REPORTER)
-    add_table_gap(doc)
-    add_title(doc, art.get("title", ""))
+    add_table_gap(doc, proto.gap)
+    add_title(doc, proto.title, art.get("title", ""))
 
     # 圖片：集團新聞是本機檔，網路新聞是網址
     local = art.get("image_path")
@@ -402,7 +448,7 @@ def group_by_category(articles: list, group_articles: list) -> list:
 
 
 def build(template, articles, group_articles, out_path, date_label):
-    doc, proto_tbl = load_template(template)
+    doc, proto = load_template(template)
     sections = group_by_category(articles, group_articles)
 
     toc_lines = [f"{label} P.__~__" for label, _ in sections]
@@ -413,7 +459,7 @@ def build(template, articles, group_articles, out_path, date_label):
         print(f"\n【{label}】{len(items)} 則")
         for art in items:
             print(f"  - {art.get('title', '')[:34]}")
-            add_news_block(doc, art, proto_tbl, stats)
+            add_news_block(doc, art, proto, stats)
             stats["則數"] += 1
 
     out_path = Path(out_path)
