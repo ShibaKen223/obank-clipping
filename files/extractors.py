@@ -357,28 +357,42 @@ class BaseExtractor:
 
     # -- 共用 ------------------------------------------------------
 
+    def image_candidates(self, soup, url) -> list:
+        """依偏好順序列出候選圖，格式 (網址, 來源說明)。
+
+        子類覆寫這個方法就能插隊，不必動下面的驗證流程。
+        """
+        return [(_meta(soup, "og:image", "twitter:image", "image"), "og:image")]
+
     def parse_image(self, soup, url, warnings) -> str:
-        """取主圖並實際驗證抓得到。抓不到就回 None，不是錯誤（SPEC §6 Phase 1）。"""
-        candidate = _meta(soup, "og:image", "twitter:image", "image")
-        if not candidate:
-            return None
-        if not _is_usable_image(candidate):
-            warnings.append(f"og:image 是 logo／佔位圖，已忽略：{candidate}")
-            return None
-        try:
-            # 防盜連：一定要帶 Referer，否則多數站台回 403
-            ir = requests.get(candidate, headers={**HEADERS, "Referer": url},
-                              timeout=TIMEOUT, stream=True)
-            ok = (ir.status_code == 200
-                  and ir.headers.get("Content-Type", "").startswith("image"))
-            ir.close()
-            if not ok:
-                warnings.append(f"圖片下載失敗 HTTP {ir.status_code}：{candidate}")
-                return None
-        except requests.RequestException as e:
-            warnings.append(f"圖片下載失敗 {type(e).__name__}：{candidate}")
-            return None
-        return candidate
+        """依序試候選圖，回傳第一張真的抓得到的。
+
+        全部落空就回 None，不是錯誤（SPEC §6 Phase 1）。
+        """
+        for candidate, source in self.image_candidates(soup, url):
+            if not candidate:
+                continue
+            if not _is_usable_image(candidate):
+                warnings.append(f"{source} 是 logo／佔位圖，已忽略：{candidate}")
+                continue
+            try:
+                # 防盜連：一定要帶 Referer，否則多數站台回 403
+                ir = requests.get(candidate, headers={**HEADERS, "Referer": url},
+                                  timeout=TIMEOUT, stream=True)
+                ok = (ir.status_code == 200
+                      and ir.headers.get("Content-Type", "").startswith("image"))
+                ir.close()
+                if not ok:
+                    warnings.append(
+                        f"圖片下載失敗 HTTP {ir.status_code}：{candidate}")
+                    continue
+            except requests.RequestException as e:
+                warnings.append(f"圖片下載失敗 {type(e).__name__}：{candidate}")
+                continue
+            if source != "og:image":
+                warnings.append(f"改用{source}（og:image 是沒有資訊量的情境照）")
+            return candidate
+        return None
 
     def parse_body(self, html, soup, title, byline_text) -> list:
         text = trafilatura.extract(html, include_comments=False,
@@ -469,6 +483,26 @@ class ChinaTimesExtractor(BaseExtractor):
     """
     DOMAINS = ("www.ctee.com.tw", "www.chinatimes.com")
     BYLINE_SELECTOR = "li.publish-author, .author"
+
+    def image_candidates(self, soup, url) -> list:
+        """資料圖表優先於 og:image。
+
+        ctee 的圖檔名自己就分好了類:
+            A02AA2_Table_Clipping_04_5.jpg        ← 記者製的資料圖表
+            A02AA2_PictureItem_Clipping_04_4.jpg  ← 情境照（鈔票、大樓、人像）
+        og:image 一律給情境照，但剪報要的是圖表 —— 一張「銀行看美日聯手出擊下
+        的匯市」比一張日圓鈔票特寫有用得多。0804 那天 27 則裡有 4 則是這種情況。
+
+        只掃 <article> 內，不然會撈到側欄推薦文章的圖。
+        """
+        article = soup.find("article")
+        charts = []
+        if article:
+            for img in article.find_all("img"):
+                src = img.get("src") or img.get("data-src") or ""
+                if "_Table_" in src and src not in [c for c, _ in charts]:
+                    charts.append((src, "內文資料圖表"))
+        return charts + super().image_candidates(soup, url)
 
 
 class LtnExtractor(BaseExtractor):

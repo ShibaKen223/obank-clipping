@@ -213,6 +213,19 @@ def add_page_break(doc):
     p.add_run().add_break(WD_BREAK.PAGE)
 
 
+# 資訊表是浮動表格（tblpPr），Word 會讓後面的文字繞到它右邊。
+# 底稿靠兩個 12pt 空段落把高度讓開，標題才會落在表格正下方而不是旁邊。
+# 底稿 35 個表格全部都是 2 個，這是版型的一部分，不是誰多按了 Enter。
+TABLE_GAP_PARAS = 2
+
+
+def add_table_gap(doc):
+    """表格與標題之間的留白。少了它標題會跑到表格右邊。"""
+    for _ in range(TABLE_GAP_PARAS):
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+
 # 表格欄寬估算用（單位 twips，1 in = 1440）
 _CJK_W = 330        # 16pt 全形字約佔的寬度
 _ASCII_W = 180      # 半形字
@@ -334,12 +347,13 @@ def add_image_placeholder(doc, url: str):
 
 
 def add_news_block(doc, art: dict, proto_tbl, stats: dict):
-    """產生一則新聞：分頁 → 表格 → 標題 → 圖片 → 內文（順序見實檔量測）。"""
+    """產生一則新聞：分頁 → 表格 → 留白 → 標題 → 圖片 → 內文（順序見實檔量測）。"""
     add_page_break(doc)
     add_info_table(doc, proto_tbl,
                    art.get("media", ""),
                    art.get("date", ""),
                    art.get("reporter") or DEFAULT_REPORTER)
+    add_table_gap(doc)
     add_title(doc, art.get("title", ""))
 
     # 圖片：集團新聞是本機檔，網路新聞是網址
