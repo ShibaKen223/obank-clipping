@@ -126,6 +126,9 @@ TAIL_CUTOFF_PATTERNS = (
     re.compile(r"不用抽\s*不用搶"),            # 自由時報 APP 推銷
     re.compile(r"^(延伸閱讀|相關新聞|更多相關新聞|推薦閱讀|看更多)"),
     re.compile(r"(訂閱|加入).{0,8}(頻道|粉絲團|社群|LINE)"),
+    # 「將工商時報加入Google偏好來源」。0804 那天 27 則裡有 7 則的最後一段是它，
+    # 上面那條「(訂閱|加入)…(頻道|粉絲團)」擋不到，因為受詞是 Google 偏好來源。
+    re.compile(r"Google\s*偏好來源"),
     re.compile(r"點我(下載|訂閱|看)"),
     re.compile(r"^(責任編輯|核稿編輯)[：:]"),
 )

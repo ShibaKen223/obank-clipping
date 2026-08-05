@@ -7,19 +7,28 @@
 
 ---
 
-## 〇、Mac 桌面工具（日常就用這個）
+## 〇、桌面工具（日常就用這個）
 
-下面第一、二節是指令列用法（辦公室 Windows 機器用）。
-在 Mac 上已經包成桌面 app，日常操作只有兩步：
+Windows 和 Mac 各有一套，功能完全一樣，日常操作都只有兩步。
+下面第一、二節是指令列用法，出狀況要診斷時才需要。
 
 ### 安裝（只要做一次）
+
+**Windows** —— 在 PowerShell 裡跑：
+
+```bash
+powershell -ExecutionPolicy Bypass -File .\tools\build_app.ps1
+```
+
+**Mac** —— 在終端機裡跑：
 
 ```bash
 ./tools/build_app.sh
 ```
 
-桌面會出現「**每日剪報**」。第一次執行時系統會問要不要允許它控制「終端機」，
-按允許 —— 需要終端機是為了讓你看得到 3 分鐘的進度和最後的摘要。
+兩邊都會在桌面放一個「**每日剪報**」。
+Mac 第一次執行時系統會問要不要允許它控制「終端機」，按允許 ——
+需要終端機是為了讓你看得到 3 分鐘的進度和最後的摘要。
 
 ### 每天
 
@@ -27,19 +36,19 @@
 2. 雙擊桌面的「**每日剪報**」
 
 它會自動挑下載資料夾裡最新的一封榮董新聞、跑完整流程、
-把成品用 Word 開起來。想指定某一封的話，把那個 `.eml` 直接拖到 app 圖示上。
+把成品用 Word 開起來。想指定某一封的話，把那個 `.eml` 直接拖到圖示上。
 
 兩個 `.docx` 附件不用自己存，程式會從信件裡拆。
 第一次執行會多花約 1 分鐘自動建 Python 環境，之後就不會了。
 
-**跑完一定要看終端機視窗最後的摘要**，它會告訴你哪幾則失敗、
+**跑完一定要看視窗最後的摘要**，它會告訴你哪幾則失敗、
 哪幾張圖要手動補。看完按 Enter 關掉。
 
 封面目錄的頁碼會自動填好（作法：請 Word 把成品排版一次、數出每個類別
 從第幾頁開始）。這一步需要 Microsoft Word，沒有的話會跳過並維持
 `P.__~__` 讓你手填，前面的成果不受影響。
 
-搬動專案資料夾之後，重跑一次 `./tools/build_app.sh` 就好。
+搬動專案資料夾之後，重跑一次 `build_app.ps1` / `build_app.sh` 就好。
 
 ---
 
@@ -59,7 +68,7 @@ py --version
 ### 2. 裝套件
 
 ```bash
-py -m pip install requests beautifulsoup4 trafilatura python-docx Pillow
+py -m pip install -r ../requirements.txt
 ```
 
 | 套件 | 用途 |
@@ -69,6 +78,8 @@ py -m pip install requests beautifulsoup4 trafilatura python-docx Pillow
 | `trafilatura` | 抽新聞內文 |
 | `python-docx` | 讀寫 Word |
 | `Pillow` | 修正部分網站的圖片格式（沒有它壹蘋的圖插不進去）|
+| `pywin32` | 只在 Windows 裝：問 Word 每段排在第幾頁，用來填封面頁碼 |
+| `pypdfium2` | 只在 Mac 裝：讀 Word 匯出的 PDF 數頁碼，同上 |
 
 ---
 
@@ -96,11 +107,14 @@ py main.py 0804_榮董新聞.eml
   失敗    0 則
 ```
 
-### 3. 開 Word 做三件事
+### 3. 開 Word 做這幾件事
 
-1. **填封面目錄的頁碼** — 現在是 `P.__~__`，頁碼要 Word 排完版才知道，程式算不出來
+摘要最後的「接下來要人工做的」會列出當次真正要處理的，照著做就好。可能會出現：
+
+1. **填封面目錄的頁碼** — 只有在這台沒 Word、頁碼算不出來時才會出現（維持 `P.__~__`）
 2. **搜尋紅字「圖片待補」** — 如果摘要說有待補圖，那幾處要手動貼圖
-3. **校對後自己寄出**
+3. **把內文提到「王道銀行（O-Bank）」的地方標粗體底線** — 程式不做，見§七
+4. **校對後自己寄出**
 
 ---
 
@@ -130,6 +144,12 @@ py group_news.py "20260804 王道銀行集團相關新聞報導摘錄.docx" --pi
 ### 指令按下去完全沒反應，直接跳回提示字元
 
 你打成 `python` 了。改用 `py`。
+
+### Windows：「因為這個系統上已停用指令碼執行」
+
+PowerShell 預設不跑沒簽章的 `.ps1`。桌面捷徑本身帶了 `-ExecutionPolicy Bypass`
+所以不會遇到，只有手動跑 `build_app.ps1` 時要照著§〇 那行的寫法加上這個參數。
+不需要去改系統的執行原則。
 
 ### 「在附件裡找不到集團新聞摘錄檔」
 
@@ -196,10 +216,14 @@ py main.py 0804_榮董新聞.eml --template "0730 每日新聞剪報.docx"
 | `extractors.py` | 抓網路新聞內文與圖 → `extract_result.json` |
 | `group_news.py` | 從摘錄 .docx 取出「第N則」集團新聞 |
 | `build_docx.py` | 產出 Word（以前一天成品為底稿）|
-| `paginate.py` | 請 Word 排版一次，算出封面目錄的頁碼 |
+| `paginate.py` | 請 Word 排版一次，算出封面目錄的頁碼（Windows 走 COM／Mac 走 PDF）|
 | `test_fetch.py` | 診斷用：測哪些網域抓得到，不產 Word |
-| `../tools/run_clipping.sh` | Mac 桌面工具的實際內容：顧環境、找信件、開成品 |
-| `../tools/build_app.sh` | 產生桌面上的「每日剪報」，只有安裝或搬家時要跑 |
+| `../tools/run_clipping.ps1` | **Windows** 桌面工具的實際內容：顧環境、找信件、開成品 |
+| `../tools/build_app.ps1` | **Windows** 產生桌面上的「每日剪報」，只有安裝或搬家時要跑 |
+| `../tools/run_clipping.sh` | **Mac** 同 `run_clipping.ps1` |
+| `../tools/build_app.sh` | **Mac** 同 `build_app.ps1` |
+
+`tools/` 底下 Windows 與 Mac 是兩份對照的腳本，改行為時**兩邊要一起改**。
 
 跑完會產生這些中間檔，可以直接刪，下次會重生：
 
@@ -229,8 +253,12 @@ outputs/               產出的剪報
 ## 七、已知限制
 
 - **封面目錄頁碼要有 Word 才填得了。** 頁碼得等實際排版才知道，所以是把成品
-  丟給 Word 排一次再數出來的。這台沒裝 Word、或不是 macOS（靠 AppleScript
-  驅動 Word）時會跳過，維持 `P.__~__`。
+  丟給 Word 排一次再數出來的。Windows 用 COM 直接問 Word「這一段在第幾頁」，
+  Mac 沒有等價介面（Word for Mac 的 AppleScript 字典裡沒有這個），只好改成
+  匯出 PDF 再從 PDF 數。兩條路都走不通時會跳過，維持 `P.__~__` 讓人工填。
+- **內文裡的「王道銀行（O-Bank）」不會自動粗體加底線。** 人工版會把提到自家
+  的地方標起來（樣式「榮董新聞醒目」），程式沒做 —— 要標哪幾處是編輯判斷，
+  整篇無差別加粗反而更難看。校對時自己標。
 - **udn 沒配圖的稿子**，og:image 會給網站 logo（紅色「經濟日報」字樣），
   已在 `IMAGE_BLACKLIST` 擋掉 `/static/`。那些新聞本來就沒照片，剪報裡就沒圖。
 - **只有工商時報（ctee）分得出資料圖表與情境照**，因為它的圖檔名有

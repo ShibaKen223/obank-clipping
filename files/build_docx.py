@@ -44,6 +44,12 @@ TITLE_PT = 24                   # 標題字級
 TEXT_WIDTH_IN = 10.12           # 文字欄寬，圖片最寬就是這個
 IMG_FAIL_COLOR = RGBColor(0xFF, 0x00, 0x00)   # 圖片待補用紅字（SPEC §7.4）
 
+# 封面目錄的頁碼欄從第幾個半形字元開始。
+# 實檔七行目錄的「類別名 + 空白」加起來一律是 25 個半形寬（全形算 2），
+# 頁碼因此對得整整齊齊。不補這些空白的話，P.1~7 會緊貼在類別名後面，
+# 七行長短不一，封面一眼就看得出不是同一份東西做出來的。
+TOC_PAGE_COLUMN = 25
+
 # urls.json 的類別 → 封面目錄上的寫法（實檔用詞跟信件不完全一樣）
 CATEGORY_ORDER = [
     ("集團新聞", "集團新聞"),
@@ -64,6 +70,21 @@ def _err(e: Exception) -> str:
     """有些例外的訊息是空字串（python-docx 的 UnrecognizedImageError 就是），
     只印 str(e) 會變成一片空白，看不出發生什麼事。"""
     return f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+
+
+def _display_width(s: str) -> int:
+    """字串在等寬字型下佔幾個半形位。中日韓字元算 2。"""
+    return sum(2 if ord(ch) > 0x2E80 else 1 for ch in s)
+
+
+def toc_line(label: str, pages: str = "__~__") -> str:
+    """組一行封面目錄，頁碼對齊到 TOC_PAGE_COLUMN。
+
+    產 Word 時 pages 是佔位的 "__~__"，paginate.py 量到真頁碼後會用
+    同一個函式重寫一次，兩次的空白數才會一致。
+    """
+    pad = max(1, TOC_PAGE_COLUMN - _display_width(label))
+    return f"{label}{' ' * pad}P.{pages}"
 
 
 def _has_page_break(p_el) -> bool:
@@ -451,7 +472,7 @@ def build(template, articles, group_articles, out_path, date_label):
     doc, proto = load_template(template)
     sections = group_by_category(articles, group_articles)
 
-    toc_lines = [f"{label} P.__~__" for label, _ in sections]
+    toc_lines = [toc_line(label) for label, _ in sections]
     update_cover(doc, date_label, toc_lines)
 
     stats = {"則數": 0, "圖片成功": 0, "圖片待補": 0, "本來就無圖": 0}

@@ -3,4 +3,10 @@ beautifulsoup4
 trafilatura
 python-docx
 Pillow
-pypdfium2
+
+# 封面目錄的頁碼要真的排版一次才知道，兩個平台的量法不同：
+#   Windows 用 COM 直接問 Word 每段在第幾頁（pywin32）
+#   macOS   叫 Word 匯出 PDF 再從 PDF 數（pypdfium2）
+# 裝不到也只是頁碼維持 P.__~__ 讓人工填，不影響其他步驟。
+pywin32; sys_platform == "win32"
+pypdfium2; sys_platform == "darwin"
