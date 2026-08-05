@@ -175,7 +175,7 @@ def main():
           f"（{' / '.join(f'{l} {len(i)}' for l, i in sections)}）")
     print(f"  待補圖  {stats['圖片待補']} 則")
     print(f"  失敗    {len(failed)} 則")
-    print(f"  已標記  「王道銀行／O-Bank」{stats['標記']} 處")
+    print(f"  已標記  {build_docx.highlight_summary(stats['標記'])}")
     if warned:
         print(f"\n  有警告的 {len(warned)} 則（欄位可能要人工看一眼）:")
         for a in warned:

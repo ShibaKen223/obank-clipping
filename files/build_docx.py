@@ -22,6 +22,7 @@ import io
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 import requests
@@ -49,11 +50,29 @@ IMG_FAIL_COLOR = RGBColor(0xFF, 0x00, 0x00)   # 圖片待補用紅字（SPEC §7
 # 哪天要調整粗細或顏色，改 Word 裡的樣式就好，不用動程式。
 HIGHLIGHT_STYLE = "榮董新聞醒目 字元"
 
-# 要標哪些字。實檔標的是整串「王道銀行（O-Bank）」，所以括號那段要一起吃掉，
-# 不然會斷成「王道銀行」有底線、「（O-Bank）」沒有。
-# 只認完整的行名，不標單獨的「王道」—— 內文裡的「王道薪轉戶」「王道簽帳金融卡」
-# 標起來會滿篇紅線，反而看不出重點在哪。
-HIGHLIGHT_RE = re.compile(r"王道銀行\s*[（(]\s*O-?Bank\s*[）)]|王道銀行|O-Bank")
+# ── 要標哪些字 ──
+# 順序就是比對順序，長的一定要排在短的前面。
+# 「王道銀行（O-Bank）」排在「王道銀行」後面的話，會先被切成「王道銀行」有底線、
+# 「（O-Bank）」沒有 —— 實檔是整串標成一條底線的。
+HIGHLIGHT_TERMS = [
+    r"王道銀行\s*[（(]\s*O-?Bank\s*[）)]",   # 整串一起標
+    r"王道銀行",
+    r"O-?Bank",
+    r"王道",                                  # 含「王道薪轉戶」「王道簽帳金融卡」
+    r"榮譽董事長",
+]
+
+# 董事長們的姓名。換人時改這裡就好，不用動下面的程式。
+# 注意這裡刻意「只標名字，不標『董事長』三個字」——「董事長」在財經新聞裡
+# 滿天飛（國票金董事長、中鋼董事長、富邦投顧董事長…），0804 那天光別家的
+# 就有十幾處，標下去整篇都是紅線。「榮譽董事長」指涉夠明確，才留在上面的清單。
+CHAIRMAN_NAMES = [
+    "駱錦明",   # 榮譽董事長
+    "駱怡君",   # 董事長
+]
+
+HIGHLIGHT_RE = re.compile("|".join(
+    HIGHLIGHT_TERMS + [re.escape(n) for n in CHAIRMAN_NAMES if n.strip()]))
 
 # 封面目錄的頁碼欄從第幾個半形字元開始。
 # 實檔七行目錄的「類別名 + 空白」加起來一律是 25 個半形寬（全形算 2），
@@ -449,7 +468,9 @@ def add_body_paragraph(doc, text: str, highlight: bool, stats: dict):
             run.style = doc.styles[HIGHLIGHT_STYLE]
         except KeyError:
             _mark_highlight(run)
-        stats["標記"] += 1
+        # 記下實際標到的字串而不是只算次數。「王道」本身是個常用詞
+        # （「分散投資才是王道」），誤標時要看得出來是哪一個詞被標了幾次。
+        stats["標記"][m.group()] += 1
         pos = m.end()
     if pos < len(text):
         p.add_run(text[pos:])
@@ -505,6 +526,14 @@ def add_news_block(doc, art: dict, proto: "Proto", stats: dict):
 # 組裝
 # ─────────────────────────────────────────────────────────────
 
+def highlight_summary(marked: Counter) -> str:
+    """把標記結果攤成「王道銀行 13 / 王道 4 / …」，讓誤標一眼看得出來。"""
+    if not marked:
+        return "0 處"
+    detail = " / ".join(f"{t} {n}" for t, n in marked.most_common())
+    return f"{sum(marked.values())} 處（{detail}）"
+
+
 def group_by_category(articles: list, group_articles: list) -> list:
     """依 SPEC §2.1 的固定順序排列，當天沒有的類別直接跳過。"""
     buckets = {label: [] for _, label in CATEGORY_ORDER}
@@ -527,7 +556,8 @@ def build(template, articles, group_articles, out_path, date_label):
     toc_lines = [toc_line(label) for label, _ in sections]
     update_cover(doc, date_label, toc_lines)
 
-    stats = {"則數": 0, "圖片成功": 0, "圖片待補": 0, "本來就無圖": 0, "標記": 0}
+    stats = {"則數": 0, "圖片成功": 0, "圖片待補": 0, "本來就無圖": 0,
+             "標記": Counter()}
     for label, items in sections:
         print(f"\n【{label}】{len(items)} 則")
         for art in items:
@@ -537,7 +567,15 @@ def build(template, articles, group_articles, out_path, date_label):
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    doc.save(str(out_path))
+    try:
+        doc.save(str(out_path))
+    except PermissionError:
+        # Windows 的 Word 會把開著的檔案鎖成獨佔，同一天重跑（上一版還開著校對）
+        # 就會在這裡炸掉。原本的 traceback 完全看不出是這個原因。
+        raise SystemExit(
+            f"存不進 {out_path}，檔案正被別的程式鎖住。\n"
+            f"多半是上一版還開在 Word 裡 —— 把它關掉再跑一次。\n"
+            f"（前面抓的新聞都沒白費，重跑時加 --skip-fetch 就不會再抓一次）")
     return out_path, stats, sections
 
 
@@ -588,7 +626,7 @@ def main():
           f"（{' / '.join(f'{l} {len(i)}' for l, i in sections)}）")
     print(f"  圖片：成功 {stats['圖片成功']} / 待補 {stats['圖片待補']}"
           f" / 本來就沒圖 {stats['本來就無圖']}")
-    print(f"  已標記「王道銀行／O-Bank」{stats['標記']} 處")
+    print(f"  已標記 {highlight_summary(stats['標記'])}")
     if stats["圖片待補"]:
         print(f"  ! 有 {stats['圖片待補']} 處紅字【圖片待補】，請在 Word 裡搜尋補上")
     print("  ! 封面目錄的頁碼是 P.__~__ 佔位，請開檔後依實際頁數手填（SPEC §4.3）")

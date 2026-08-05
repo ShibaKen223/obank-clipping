@@ -136,6 +136,34 @@ Write-Host "信件：$([IO.Path]::GetFileName($Eml))"
 Write-Host ''
 
 # ── 3. 跑主流程 ──────────────────────────────────────────────
+$outDir = Join-Path $CODE 'outputs'
+
+# 同一天重跑時，上一版通常還開在 Word 裡校對。Windows 的 Word 會把開著的檔案
+# 鎖成獨佔，python-docx 存檔會直接 PermissionError 爆掉 —— 所以要在跑之前關掉，
+# 不是跑完才關（Mac 版是跑完才關，因為 Word for Mac 不會鎖住檔案，
+# 那邊要解決的只有「開起來是舊版」的問題）。
+# 順帶也解決了舊版殘留：跑完再開一定是新的那份。
+function Close-OutputDocs {
+    param([string]$Folder)
+    if (-not (Test-Path $Folder)) { return }
+    $target = (Resolve-Path $Folder).Path.TrimEnd('\')
+    try {
+        $word = [Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application')
+        # 倒著跑：關掉一份之後後面的索引會位移
+        for ($i = $word.Documents.Count; $i -ge 1; $i--) {
+            $d = $word.Documents.Item($i)
+            if ($d.Path -and $d.Path.TrimEnd('\') -eq $target) {
+                Write-Host "  先關掉 Word 裡開著的「$($d.Name)」（它會鎖住檔案）"
+                $d.Close(0)   # 0 = 不存檔
+            }
+        }
+    } catch {
+        # Word 沒開著時 GetActiveObject 會丟例外，那就沒事要做
+    }
+}
+
+Close-OutputDocs $outDir
+
 # 工作目錄設成 files\，中間產物（urls.json、attachments\、outputs\）都落在那裡，
 # .gitignore 已經把它們全部排除，不會不小心把信件內容 commit 上去。
 if (-not (Test-Path $CODE)) { Die "進不去 $CODE" }
@@ -149,26 +177,13 @@ if ($status -ne 0) {
 }
 
 # ── 4. 把成品端到使用者面前 ──────────────────────────────────
-$out = Get-ChildItem -Path (Join-Path $CODE 'outputs') -Filter '*.docx' -File -ErrorAction SilentlyContinue |
+$out = Get-ChildItem -Path $outDir -Filter '*.docx' -File -ErrorAction SilentlyContinue |
        Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
 if ($out) {
     Write-Host ''
     Write-Host "V 完成  $($out.Name)" -ForegroundColor Green
     Write-Host "  位置：$($out.DirectoryName)"
-
-    # 同一天重跑時 Word 可能還開著上一版。檔案在硬碟上已經換新，但 Word 手上
-    # 那份還是舊的，直接開只會把舊視窗叫到前面 —— 校對到舊版是很難發現的錯。
-    try {
-        $word = [Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application')
-        # 倒著跑：關掉一份之後後面的索引會位移
-        for ($i = $word.Documents.Count; $i -ge 1; $i--) {
-            $d = $word.Documents.Item($i)
-            if ($d.Name -eq $out.Name) { $d.Close(0) }   # 0 = 不存檔
-        }
-    } catch {
-        # Word 沒開著時 GetActiveObject 會丟例外，那就沒事要做
-    }
 
     explorer.exe "/select,$($out.FullName)"   # 在檔案總管裡選取該檔
     Invoke-Item -LiteralPath $out.FullName    # 順手用 Word 開起來校對
