@@ -138,7 +138,36 @@ def load_template(path):
         if ch.tag != qn("w:sectPr"):
             body.remove(ch)
 
+    dropped = prune_unused_images(doc)
+    if dropped:
+        print(f"  清掉底稿殘留的 {dropped} 張孤兒圖")
+
     return doc, proto_tbl
+
+
+def prune_unused_images(doc) -> int:
+    """清掉底稿裡已經沒人引用的圖片本體。
+
+    上面清內容只是把 XML 段落刪掉，圖檔本身還留在 package 裡照樣被存出去。
+    不清的話會滾雪球：今天的成品是明天的底稿，孤兒圖一天疊一天，
+    實測一天就從 4MB 漲到 16MB，幾天後 Gmail 就寄不出去了。
+
+    只掃 document.xml，頁首頁尾是獨立的 part、有自己的 rels，不會被動到。
+    """
+    used = set()
+    for el in doc.element.body.iter():
+        for attr in (qn("r:embed"), qn("r:link"), qn("r:id")):
+            rid = el.get(attr)
+            if rid:
+                used.add(rid)
+
+    part = doc.part
+    dropped = 0
+    for rid, rel in list(part.rels.items()):
+        if not rel.is_external and "image" in rel.reltype and rid not in used:
+            part.drop_rel(rid)
+            dropped += 1
+    return dropped
 
 
 def update_cover(doc, date_label: str, toc_lines: list):
