@@ -44,6 +44,17 @@ TITLE_PT = 24                   # 標題字級
 TEXT_WIDTH_IN = 10.12           # 文字欄寬，圖片最寬就是這個
 IMG_FAIL_COLOR = RGBColor(0xFF, 0x00, 0x00)   # 圖片待補用紅字（SPEC §7.4）
 
+# 內文提到自家的地方要標起來（粗體＋紅色粗底線）。
+# 底稿本來就帶著這個字元樣式，直接套它，格式細節就跟人工版同一個來源；
+# 哪天要調整粗細或顏色，改 Word 裡的樣式就好，不用動程式。
+HIGHLIGHT_STYLE = "榮董新聞醒目 字元"
+
+# 要標哪些字。實檔標的是整串「王道銀行（O-Bank）」，所以括號那段要一起吃掉，
+# 不然會斷成「王道銀行」有底線、「（O-Bank）」沒有。
+# 只認完整的行名，不標單獨的「王道」—— 內文裡的「王道薪轉戶」「王道簽帳金融卡」
+# 標起來會滿篇紅線，反而看不出重點在哪。
+HIGHLIGHT_RE = re.compile(r"王道銀行\s*[（(]\s*O-?Bank\s*[）)]|王道銀行|O-Bank")
+
 # 封面目錄的頁碼欄從第幾個半形字元開始。
 # 實檔七行目錄的「類別名 + 空白」加起來一律是 25 個半形寬（全形算 2），
 # 頁碼因此對得整整齊齊。不補這些空白的話，P.1~7 會緊貼在類別名後面，
@@ -404,6 +415,47 @@ def add_image(doc, stream) -> bool:
     return True
 
 
+def _mark_highlight(run):
+    """套上「粗體＋紅色粗底線」。
+
+    優先用底稿的字元樣式；底稿沒有那個樣式時（換了很舊的成品當底稿）
+    退回自己畫，效果一樣，只是之後改樣式不會跟著動。
+    """
+    run.bold = True
+    rpr = run._element.get_or_add_rPr()
+    u = rpr.makeelement(qn("w:u"), {})
+    u.set(qn("w:val"), "thick")
+    u.set(qn("w:color"), "FF0000")
+    rpr.append(u)
+
+
+def add_body_paragraph(doc, text: str, highlight: bool, stats: dict):
+    """加一段內文，把提到自家的地方標起來。
+
+    整段一個 run 是不行的：底線只能標在 run 上，要標局部就得把段落切成
+    「前面的字 / 要標的字 / 後面的字」三種 run 交錯排。
+    """
+    p = doc.add_paragraph(style=BODY_STYLE)
+    if not highlight:
+        p.add_run(text)
+        return p
+
+    pos = 0
+    for m in HIGHLIGHT_RE.finditer(text):
+        if m.start() > pos:
+            p.add_run(text[pos:m.start()])
+        run = p.add_run(m.group())
+        try:
+            run.style = doc.styles[HIGHLIGHT_STYLE]
+        except KeyError:
+            _mark_highlight(run)
+        stats["標記"] += 1
+        pos = m.end()
+    if pos < len(text):
+        p.add_run(text[pos:])
+    return p
+
+
 def add_image_placeholder(doc, url: str):
     """圖片抓失敗時留紅字，讓失敗看得見（SPEC §7.4），不要靜默跳過。"""
     p = doc.add_paragraph(style=BODY_STYLE)
@@ -446,7 +498,7 @@ def add_news_block(doc, art: dict, proto: "Proto", stats: dict):
         stats["本來就無圖"] += 1
 
     for para in art.get("body_paragraphs", []):
-        doc.add_paragraph(para, style=BODY_STYLE)
+        add_body_paragraph(doc, para, highlight=True, stats=stats)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -475,7 +527,7 @@ def build(template, articles, group_articles, out_path, date_label):
     toc_lines = [toc_line(label) for label, _ in sections]
     update_cover(doc, date_label, toc_lines)
 
-    stats = {"則數": 0, "圖片成功": 0, "圖片待補": 0, "本來就無圖": 0}
+    stats = {"則數": 0, "圖片成功": 0, "圖片待補": 0, "本來就無圖": 0, "標記": 0}
     for label, items in sections:
         print(f"\n【{label}】{len(items)} 則")
         for art in items:
@@ -536,6 +588,7 @@ def main():
           f"（{' / '.join(f'{l} {len(i)}' for l, i in sections)}）")
     print(f"  圖片：成功 {stats['圖片成功']} / 待補 {stats['圖片待補']}"
           f" / 本來就沒圖 {stats['本來就無圖']}")
+    print(f"  已標記「王道銀行／O-Bank」{stats['標記']} 處")
     if stats["圖片待補"]:
         print(f"  ! 有 {stats['圖片待補']} 處紅字【圖片待補】，請在 Word 裡搜尋補上")
     print("  ! 封面目錄的頁碼是 P.__~__ 佔位，請開檔後依實際頁數手填（SPEC §4.3）")
