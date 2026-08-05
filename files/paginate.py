@@ -192,8 +192,14 @@ def measure_macos(docx_path: Path, sections: list):
         if not export_pdf(docx_path, pdf_path):
             return None
         pdf = pypdfium2.PdfDocument(str(pdf_path))
-        pages = [_squash(pdf[i].get_textpage().get_text_range())
-                 for i in range(len(pdf))]
+        try:
+            pages = [_squash(pdf[i].get_textpage().get_text_range())
+                     for i in range(len(pdf))]
+        finally:
+            # 一定要關。macOS 刪得掉開著的檔案，所以不關也看不出問題，
+            # 但那是漏掉的 handle，而且在別的平台上 TemporaryDirectory
+            # 收尾時會直接丟 PermissionError。
+            pdf.close()
 
     starts = []
     cursor = 0
