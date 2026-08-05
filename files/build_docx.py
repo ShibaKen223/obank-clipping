@@ -59,20 +59,37 @@ HIGHLIGHT_TERMS = [
     r"王道銀行",
     r"O-?Bank",
 ]
-# 刻意不收單獨的「王道」：它同時是常用詞（「分散投資才是王道」），
-# 誤標的機會太高。代價是「王道薪轉戶」「王道簽帳金融卡」這類產品名不會標，
-# 0804 那天有 4 處，要標請校對時自己補。
-# 同理也不收「榮譽董事長」「董事長」—— 財經新聞裡別家公司的董事長滿天飛，
-# 要標的是人，直接列姓名就夠精準。
+
+# 這些只在「集團新聞」那一段標。
+# 單獨的「王道」同時是常用詞（「分散投資才是王道」），全篇標誤傷太大；
+# 但集團新聞是從摘錄檔來的自家報導，那裡的「王道薪轉戶」「王道簽帳金融卡」
+# 確實都是自家的東西，標了不會錯。分段套不同規則就兩邊都顧到。
+GROUP_ONLY_TERMS = [
+    r"王道",
+]
 
 # 董事長們的姓名。換人時改這裡就好，不用動下面的程式。
+# 只標名字，不標「董事長」「榮譽董事長」—— 財經新聞裡別家公司的董事長滿天飛。
 CHAIRMAN_NAMES = [
     "駱錦明",   # 榮譽董事長
     "駱怡君",   # 董事長
 ]
 
-HIGHLIGHT_RE = re.compile("|".join(
-    HIGHLIGHT_TERMS + [re.escape(n) for n in CHAIRMAN_NAMES if n.strip()]))
+# 集團新聞在封面目錄上的寫法，用來判斷現在排到哪一段
+GROUP_LABEL = "集團新聞"
+
+
+def _highlight_re(*term_groups):
+    """把幾組詞併成一個 regex。順序＝比對順序，長的要排前面。"""
+    terms = []
+    for group in term_groups:
+        terms.extend(t for t in group if t and t.strip())
+    return re.compile("|".join(terms))
+
+
+_NAME_TERMS = [re.escape(n) for n in CHAIRMAN_NAMES]
+HIGHLIGHT_RE = _highlight_re(HIGHLIGHT_TERMS, _NAME_TERMS)
+GROUP_HIGHLIGHT_RE = _highlight_re(HIGHLIGHT_TERMS, _NAME_TERMS, GROUP_ONLY_TERMS)
 
 # 封面目錄的頁碼欄從第幾個半形字元開始。
 # 實檔七行目錄的「類別名 + 空白」加起來一律是 25 個半形寬（全形算 2），
@@ -448,19 +465,20 @@ def _mark_highlight(run):
     rpr.append(u)
 
 
-def add_body_paragraph(doc, text: str, highlight: bool, stats: dict):
+def add_body_paragraph(doc, text: str, pattern, stats: dict):
     """加一段內文，把提到自家的地方標起來。
 
+    pattern 是要標哪些字的 regex，依所在類別而不同（見 GROUP_ONLY_TERMS）。
     整段一個 run 是不行的：底線只能標在 run 上，要標局部就得把段落切成
     「前面的字 / 要標的字 / 後面的字」三種 run 交錯排。
     """
     p = doc.add_paragraph(style=BODY_STYLE)
-    if not highlight:
+    if pattern is None:
         p.add_run(text)
         return p
 
     pos = 0
-    for m in HIGHLIGHT_RE.finditer(text):
+    for m in pattern.finditer(text):
         if m.start() > pos:
             p.add_run(text[pos:m.start()])
         run = p.add_run(m.group())
@@ -486,8 +504,11 @@ def add_image_placeholder(doc, url: str):
     run.bold = True
 
 
-def add_news_block(doc, art: dict, proto: "Proto", stats: dict):
-    """產生一則新聞：分頁 → 表格 → 留白 → 標題 → 圖片 → 內文（順序見實檔量測）。"""
+def add_news_block(doc, art: dict, proto: "Proto", stats: dict, label: str = ""):
+    """產生一則新聞：分頁 → 表格 → 留白 → 標題 → 圖片 → 內文（順序見實檔量測）。
+
+    label 是所在類別，決定內文用哪一組標記規則。
+    """
     add_page_break(doc)
     add_info_table(doc, proto.table,
                    art.get("media", ""),
@@ -518,8 +539,9 @@ def add_news_block(doc, art: dict, proto: "Proto", stats: dict):
     else:
         stats["本來就無圖"] += 1
 
+    pattern = GROUP_HIGHLIGHT_RE if label == GROUP_LABEL else HIGHLIGHT_RE
     for para in art.get("body_paragraphs", []):
-        add_body_paragraph(doc, para, highlight=True, stats=stats)
+        add_body_paragraph(doc, para, pattern, stats)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -562,7 +584,7 @@ def build(template, articles, group_articles, out_path, date_label):
         print(f"\n【{label}】{len(items)} 則")
         for art in items:
             print(f"  - {art.get('title', '')[:34]}")
-            add_news_block(doc, art, proto, stats)
+            add_news_block(doc, art, proto, stats, label)
             stats["則數"] += 1
 
     out_path = Path(out_path)
