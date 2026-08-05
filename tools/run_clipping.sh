@@ -107,6 +107,10 @@ if [ -n "$NEWEST" ]; then
     echo
     echo "${GREEN}${BOLD}✓ 完成${OFF}  $(basename "$NEWEST")"
     echo "  位置：$CODE/outputs/"
+    # 同一天重跑時 Word 可能還開著上一版。檔案在硬碟上已經換新，但 Word 手上
+    # 那份還是舊的，直接 open 只會把舊視窗叫到前面 —— 校對到舊版是很難發現的錯。
+    osascript -e "tell application \"Microsoft Word\" to close (every document whose name is \"$(basename "$NEWEST")\") saving no" >/dev/null 2>&1
+
     open -R "$NEWEST"      # 在 Finder 裡選取該檔
     open "$NEWEST"         # 順手用 Word 開起來校對
 else

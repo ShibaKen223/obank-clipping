@@ -26,6 +26,7 @@ from pathlib import Path
 import build_docx
 import extractors
 import group_news
+import paginate
 import parse_email
 
 ATTACH_DIR = Path("attachments")
@@ -77,12 +78,14 @@ def main():
     ap.add_argument("--skip-fetch", action="store_true",
                     help="沿用現有的 extract_result.json，不重新抓網頁")
     ap.add_argument("--out", help="輸出路徑，預設 outputs/YYYYMMDD 每日新聞剪報.docx")
+    ap.add_argument("--skip-page-numbers", action="store_true",
+                    help="不要叫 Word 排版算頁碼，封面維持 P.__~__")
     args = ap.parse_args()
 
     if not args.eml and not args.urls:
         ap.error("要給 .eml 檔，或用 --urls 指定現成的 urls.json")
 
-    total = 4
+    total = 5
 
     # ── 1. 解析信件 ────────────────────────────────────────
     step(1, total, "解析信件")
@@ -154,6 +157,16 @@ def main():
     out_path, stats, sections = build_docx.build(
         template, articles, group_articles, out, date_label)
 
+    # ── 5. 填封面頁碼 ──────────────────────────────────────
+    # 要知道每則佔幾頁只能真的排版一次，所以請 Word 排完再數。
+    # 沒有 Word（或不是 macOS）就維持 P.__~__ 讓人工填，不影響前面的成果。
+    step(5, total, "計算封面目錄頁碼")
+    paged = False
+    if args.skip_page_numbers:
+        print("  --skip-page-numbers：維持 P.__~__")
+    else:
+        paged = paginate.fill_page_numbers(out_path, sections)
+
     # ── 摘要 ───────────────────────────────────────────────
     print("\n" + "=" * 62)
     print(f"完成：{out_path}")
@@ -174,10 +187,14 @@ def main():
             print(f"    - {a['url']}\n        {a['error']}")
 
     print("\n  接下來要人工做的:")
-    print("    1. 用 Word 開啟，填封面目錄的頁碼（現在是 P.__~__）")
+    todo = []
+    if not paged:
+        todo.append("用 Word 開啟，填封面目錄的頁碼（現在是 P.__~__）")
     if stats["圖片待補"]:
-        print(f"    2. 搜尋紅字「圖片待補」，補上 {stats['圖片待補']} 張圖")
-    print(f"    {3 if stats['圖片待補'] else 2}. 校對後自行寄出（本程式不會寄信）")
+        todo.append(f"搜尋紅字「圖片待補」，補上 {stats['圖片待補']} 張圖")
+    todo.append("校對後自行寄出（本程式不會寄信）")
+    for i, t in enumerate(todo, 1):
+        print(f"    {i}. {t}")
     print("=" * 62)
 
 

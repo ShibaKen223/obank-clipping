@@ -67,6 +67,11 @@ IMAGE_BLACKLIST = (
     "logo-main",
     "default.jpg",
     "placeholder",
+    # 沒有配圖的 udn 稿子，og:image 會給網站 logo（money.udn.com/static/img/
+    # moneyudn.jpg，就是那張紅色「經濟日報」字樣）。0804 那天 27 則裡有 5 則
+    # 中招，插進剪報就是滿版的報頭 logo。真正的新聞照走 pgw.udn.com.tw，
+    # 各站的網站資產都在 /static/ 底下，擋這段路徑就好。
+    "/static/",
 )
 
 # 這些不是人名，是「沒有署名」的意思，依 SPEC §4.2 要填「新聞中心」
