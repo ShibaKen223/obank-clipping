@@ -15,6 +15,11 @@
 跟管理者要一份專案的 ZIP，解壓縮到一個**之後不會再搬的位置**（例如「文件」底下）。
 搬過家的話要重跑一次安裝。
 
+> **Windows 請先解除封鎖再解壓縮。** 從網路或信件拿到的 ZIP，Windows 會在裡面
+> 每個檔案上蓋一個「來自網際網路」的記號，解壓縮之後雙擊「安裝.bat」會被安全
+> 警告擋下來。**在 ZIP 上按右鍵 → 內容 → 最底下把「解除封鎖」打勾 → 確定**，
+> 然後再解壓縮，就不會跳警告。先解壓縮才想到也沒關係，重來一次就好。
+
 > 給管理者：專案在 <https://github.com/ShibaKen223/obank-clipping>，是 private repo。
 > 從 GitHub 頁面 Code → Download ZIP 拿一份給組員即可；會用 Git 的人加成
 > collaborator 之後 `git clone`，之後更新只要 `git pull`。
