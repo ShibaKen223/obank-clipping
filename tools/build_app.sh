@@ -13,6 +13,7 @@ set -euo pipefail
 PROJECT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNNER="$PROJECT/tools/run_clipping.sh"
 APP="${1:-$HOME/Desktop/每日剪報.app}"
+BUNDLE_ID="tw.com.o-bank.daily-clipping"   # 用途見下面補 CFBundleIdentifier 那段
 
 chmod +x "$RUNNER"
 
@@ -65,6 +66,19 @@ PLIST="$APP/Contents/Info.plist"
     -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes:0 string public.data" \
     -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes:1 string public.item" \
     "$PLIST" >/dev/null
+
+# osacompile 產生的 applet 沒有 CFBundleIdentifier，ad-hoc 簽章的識別碼會變成
+# 中文的 app 名稱。macOS 的權限資料庫（TCC）是用 bundle identifier 認 app 的，
+# 沒有 ID 就建不出授權紀錄 —— 症狀是「未獲授權來傳送 Apple Event 到 Terminal
+# (-1743)」一直跳，而且「系統設定 → 隱私權與安全性 → 自動化」裡根本找不到這支
+# 可以打開。補上固定的 ID 再重簽一次，授權才記得住。
+/usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$PLIST" \
+    2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$PLIST"
+
+# 改完 Info.plist 一定要重簽：簽章跟 ID 對不起來的話 TCC 會當成另一支 app，
+# 之前給過的授權就失效了。
+codesign --force --sign - --identifier "$BUNDLE_ID" "$APP"
 
 touch "$APP"   # 逼 Finder 重讀 bundle 資訊
 
