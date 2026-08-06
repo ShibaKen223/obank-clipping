@@ -50,6 +50,38 @@ def find_attachment(paths, hint, label):
     return hits[0]
 
 
+def find_template(paths, planned_out: Path):
+    """底稿 = 前一天的成品。優先用信件附件，附件裡沒有就退回自己上次的產出。
+
+    公關科偶爾只寄摘錄、不附前一天的剪報（0806 那天就是），以前會直接中止，
+    但 outputs/ 裡本來就躺著自己上次跑出來的成品 —— 那正是底稿要的東西，
+    沒道理逼使用者去翻檔案手動指定。
+    """
+    hits = [p for p in paths if TEMPLATE_HINT in Path(p).name]
+    if hits:
+        if len(hits) > 1:
+            print(f"  ! 有 {len(hits)} 個檔名含「{TEMPLATE_HINT}」，"
+                  f"取第一個：{Path(hits[0]).name}")
+        return hits[0]
+
+    prev = sorted(OUT_DIR.glob(f"*{TEMPLATE_HINT}.docx"),
+                  key=lambda p: p.stat().st_mtime, reverse=True)
+    # 這次要蓋掉的那份不能當自己的底稿，往前找一份還在的
+    older = [p for p in prev if p.resolve() != planned_out.resolve()]
+    pick = older[0] if older else (prev[0] if prev else None)
+
+    if pick:
+        print(f"  ! 信件裡沒附底稿，改用上次的產出：{pick.name}")
+        return str(pick)
+
+    raise SystemExit(
+        f"在附件裡找不到底稿（檔名要含「{TEMPLATE_HINT}」），"
+        f"outputs/ 裡也沒有可以接手的成品。\n"
+        f"目前的附件：{[Path(p).name for p in paths] or '（一個都沒有）'}\n"
+        f"用 --template 指定一份正常的剪報成品當底稿。"
+    )
+
+
 def date_stamp(meta, excerpt_path) -> str:
     """決定產出檔名的日期。優先用摘錄檔名的 YYYYMMDD，其次用信件主旨的 MMDD。"""
     m = re.search(r"(20\d{6})", Path(excerpt_path).name if excerpt_path else "")
@@ -112,9 +144,22 @@ def main():
     print(f"  集團新聞: 第 {picks} 則")
     print(f"  附件    : {len(attachments)} 個")
 
+    # 一則網址都沒有、也沒指定集團新聞，代表這封信根本不是榮董新聞（或存壞了）。
+    # 底稿改成可以退回上次產出之後，這種信會一路跑完、生出一份空剪報 —— 空檔案
+    # 看起來跟正常產出沒兩樣，比直接停下來危險得多。
+    if not items and not picks:
+        raise SystemExit(
+            "這封信裡一則新聞網址都沒有，也沒指定集團新聞，不像是榮董新聞。\n"
+            "確認一下是不是存錯信、或另存 .eml 時存成了純文字。"
+        )
+
     excerpt = args.excerpt or (find_attachment(attachments, EXCERPT_HINT, "集團新聞摘錄檔")
                                if picks else None)
-    template = args.template or find_attachment(attachments, TEMPLATE_HINT, "底稿")
+    # 產出路徑要先算，找底稿時才知道哪一份是「這次要蓋掉的」，不能拿它當底稿
+    stamp = date_stamp(meta, excerpt)
+    out = Path(args.out) if args.out else OUT_DIR / f"{stamp} 每日新聞剪報.docx"
+
+    template = args.template or find_template(attachments, out)
 
     # ── 2. 抓網路新聞 ──────────────────────────────────────
     step(2, total, f"抓取 {len(items)} 則網路新聞")
@@ -150,8 +195,6 @@ def main():
 
     # ── 4. 產出 Word ───────────────────────────────────────
     step(4, total, "產出 Word 剪報")
-    stamp = date_stamp(meta, excerpt)
-    out = Path(args.out) if args.out else OUT_DIR / f"{stamp} 每日新聞剪報.docx"
     date_label = f"{stamp[:4]}/{int(stamp[4:6])}/{int(stamp[6:8])}每日新聞剪報"
 
     out_path, stats, sections = build_docx.build(

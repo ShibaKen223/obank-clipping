@@ -96,8 +96,13 @@ cd "$CODE" || die "進不去 $CODE"
 "$PY" main.py "$EML"
 STATUS=$?
 
-if [ $STATUS -ne 0 ]; then
-    die "執行失敗（結束代碼 $STATUS）" \
+if [ "$STATUS" -ne 0 ]; then
+    # ${STATUS} 的大括號不能拿掉：macOS 的 bash 3.2 在 UTF-8 locale 下，
+    # 會把緊接在後面的全形「）」也當成變數名的一部分，變成查一個不存在的
+    # 變數，被 set -u 判定 unbound variable 當場中止 —— 症狀是主流程只要
+    # 失敗，使用者就看不到失敗原因，只看到腳本自己爆掉。
+    # 這份檔案裡所有「變數後面直接接中文」的地方都要加大括號。
+    die "執行失敗（結束代碼 ${STATUS}）" \
         "上面紅色或最後幾行的訊息就是原因，整段複製給我看。"
 fi
 
