@@ -323,6 +323,11 @@ outputs/               產出的剪報
   標記只發生在**內文**，標題不標（人工版的標題也沒標）。
 - **udn 沒配圖的稿子**，og:image 會給網站 logo（紅色「經濟日報」字樣），
   已在 `IMAGE_BLACKLIST` 擋掉 `/static/`。那些新聞本來就沒照片，剪報裡就沒圖。
+- **中國時報（chinatimes.com）沒配圖時同理**，給的是
+  `static.chinatimes.com/images/2020/logo-chinatimes-250x250.png` 那張方形報頭。
+  實測財經版 14 則裡 13 則都是它。注意上面那條 `/static/` **擋不到它** ——
+  `/static/` 比對的是路徑，中時的 logo 掛在主機名 `static.chinatimes.com` 底下，
+  網址裡沒有 `/static/` 這一段，所以另外列了一條。加新媒體時要留意這個差別。
 - **只有工商時報（ctee）分得出資料圖表與情境照**，因為它的圖檔名有
   `_Table_` / `_PictureItem_`。其他媒體沒有這種標示，抓到沒資訊量的照片
   只能手動換。

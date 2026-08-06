@@ -63,6 +63,12 @@ MEDIA_OVERRIDES = {
 IMAGE_BLACKLIST = (
     "ctee-logo",
     "static.ctee.com.tw",
+    # 中國時報沒配圖時，og:image 給的是 static.chinatimes.com/images/2020/
+    # logo-chinatimes-250x250.png（方形報頭 logo）。實測財經版 14 則裡 13 則
+    # 都是它，等於整版的剪報都會被插一張 logo，而且不會報錯。
+    # 下面那條 "/static/" 擋不到 —— 它比對的是路徑，中時的 logo 是掛在
+    # 主機名 static.chinatimes.com 底下，網址裡根本沒有 /static/ 這段。
+    "static.chinatimes.com",
     "favicon",
     "logo-main",
     "default.jpg",
