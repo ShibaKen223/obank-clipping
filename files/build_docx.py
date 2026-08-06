@@ -43,6 +43,14 @@ BODY_STYLE = "榮董新聞內文"     # 18pt 白字，標題與內文共用
 CELL_STYLE = "榮董資訊"         # 16pt 白字，表格儲存格用
 TITLE_PT = 24                   # 標題字級
 TEXT_WIDTH_IN = 10.12           # 文字欄寬，圖片最寬就是這個
+
+# 圖片最高多少。只看寬度不夠 —— 直式的剪報掃描依欄寬放大後會比整頁還高
+# （0806 集團新聞那張放成 10.12x15.94in，版面可用高度只有 14.96in），
+# Word 只好讓它獨占一頁，上一頁就留下一大片空白，一則兩頁份量的新聞被撐成
+# 三頁，後面每一類的封面頁碼也跟著整批往後推一頁。
+# 壓到這個高度，出處表格、標題和內文開頭才擠得進同一頁，跟人工版的排法一致。
+# 橫式的網路新聞圖（約 10.12x6.7in）碰不到這條線，維持原樣。
+IMAGE_MAX_HEIGHT_IN = 9.0
 IMG_FAIL_COLOR = RGBColor(0xFF, 0x00, 0x00)   # 圖片待補用紅字（SPEC §7.4）
 
 # 內文提到自家的地方要標起來（粗體＋紅色粗底線）。
@@ -447,6 +455,11 @@ def add_image(doc, stream) -> bool:
     if pic.width > limit:
         pic.height = int(pic.height * limit / pic.width)
         pic.width = limit
+    # 再壓一次高度。順序不能反 —— 先套寬度才知道等比放大後有多高。
+    hlimit = Inches(IMAGE_MAX_HEIGHT_IN)
+    if pic.height > hlimit:
+        pic.width = int(pic.width * hlimit / pic.height)
+        pic.height = hlimit
     doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
     return True
 

@@ -64,7 +64,10 @@ def find_template(paths, planned_out: Path):
                   f"取第一個：{Path(hits[0]).name}")
         return hits[0]
 
-    prev = sorted(OUT_DIR.glob(f"*{TEMPLATE_HINT}.docx"),
+    # 「~$」開頭的是 Word 開著檔案時放的鎖檔，檔名長得跟成品一模一樣但內容
+    # 不是 docx，直接餵給 python-docx 會炸。Word 一開著就會冒出來，所以一定要濾。
+    prev = sorted((p for p in OUT_DIR.glob(f"*{TEMPLATE_HINT}.docx")
+                   if not p.name.startswith("~$")),
                   key=lambda p: p.stat().st_mtime, reverse=True)
     # 這次要蓋掉的那份不能當自己的底稿，往前找一份還在的
     older = [p for p in prev if p.resolve() != planned_out.resolve()]
