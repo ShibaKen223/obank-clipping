@@ -257,6 +257,8 @@ py main.py 0804_榮董新聞.eml --template "0730 每日新聞剪報.docx"
 | `test_fetch.py` | 診斷用：測哪些網域抓得到，不產 Word |
 | `../tools/run_clipping.ps1` | **Windows** 桌面工具的實際內容：顧環境、找信件、開成品 |
 | `../tools/build_app.ps1` | **Windows** 產生桌面上的「每日剪報」，只有安裝或搬家時要跑 |
+| `../安裝.bat` | **Windows** 給組員雙擊的一鍵安裝入口，只是去叫 `install.ps1` |
+| `../tools/install.ps1` | **Windows** 一鍵安裝的實際內容：顧 Python、建捷徑、預先建好環境 |
 | `../tools/run_clipping.sh` | **Mac** 同 `run_clipping.ps1` |
 | `../tools/build_app.sh` | **Mac** 同 `build_app.ps1` |
 

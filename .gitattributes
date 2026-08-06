@@ -1,0 +1,3 @@
+# 安裝.bat 一定要是 CRLF。cmd.exe 對 LF 的 .bat 行為不穩定（尤其有 goto、
+# 括號區塊時會解析錯），而 Git 預設會依平台改寫行尾，所以在這裡釘死。
+*.bat text eol=crlf
