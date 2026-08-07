@@ -17,6 +17,7 @@ Windows 走 COM 而不是也匯 PDF，是因為 COM 問得到的就是 Word 自�
 沒有 Word、或兩套都跑不動時就跳過，封面維持 P.__~__ 讓人工填，
 不會讓整個流程失敗。
 """
+import argparse
 import os
 import platform
 import re
@@ -28,7 +29,9 @@ from pathlib import Path
 
 from docx import Document
 
-from build_docx import set_paragraph_text, toc_line
+from docx.oxml.ns import qn
+
+from build_docx import SECTION_BOOKMARK, set_paragraph_text, toc_line
 
 # Word 排一份 55 頁的 A3 大約 20–40 秒，給寬一點免得慢的機器被砍掉
 WORD_TIMEOUT = 300
@@ -285,5 +288,59 @@ def fill_page_numbers(docx_path, sections) -> bool:
     return True
 
 
+def sections_from_docx(docx_path: Path):
+    """只憑產出檔本身重建 sections，給「改完再重算頁碼」用。
+
+    產出當下 main.py 手上有 sections，但使用者在 Word 裡調完圖片大小之後
+    要重算時，手上只剩這個 .docx。所以 build_docx 會在每一類第一則的標題上
+    插一個書籤（SECTION_BOOKMARK），這裡靠它把類別邊界找回來：
+        類別名稱 → 封面目錄那七行
+        每類從哪一則開始 → 書籤所在段落的文字（就是那則的標題）
+    """
+    doc = Document(str(docx_path))
+
+    labels = []
+    for p in doc.paragraphs:
+        # toc_line() 會把頁碼靠空白推到固定欄位，類別名最長時只剩 1 個空白，
+        # 所以是 \s+ 不是 \s{2,}
+        m = re.match(r"(.+?)\s+P\.\s*(?:__|\d+)\s*[~～]", p.text.strip())
+        if m:
+            labels.append(m.group(1).strip())
+
+    marks = {}
+    for p in doc.paragraphs:
+        for bm in p._p.findall(qn("w:bookmarkStart")):
+            name = bm.get(qn("w:name")) or ""
+            if name.startswith(SECTION_BOOKMARK):
+                marks[int(name[len(SECTION_BOOKMARK):])] = p.text
+
+    if not marks:
+        print("  這份剪報沒有類別書籤，是舊版程式產出的，沒辦法重算。\n"
+              "  用 main.py 重跑一次就會有了。", file=sys.stderr)
+        return None
+    if len(marks) != len(labels):
+        print(f"  封面有 {len(labels)} 個類別，內文只找到 {len(marks)} 個標記，"
+              f"對不起來，不敢亂填。", file=sys.stderr)
+        return None
+
+    return [(labels[i], [{"title": marks[i]}]) for i in sorted(marks)]
+
+
+def repaginate(docx_path) -> bool:
+    """對一份既有的剪報重算封面頁碼（內容不動，只改封面那七行）。"""
+    docx_path = Path(docx_path)
+    if not docx_path.exists():
+        print(f"找不到檔案：{docx_path}", file=sys.stderr)
+        return False
+    sections = sections_from_docx(docx_path)
+    if not sections:
+        return False
+    return fill_page_numbers(docx_path, sections)
+
+
 if __name__ == "__main__":
-    print("這支模組由 main.py 呼叫，沒有單獨的指令列用法。", file=sys.stderr)
+    ap = argparse.ArgumentParser(
+        description="重算既有剪報的封面目錄頁碼（在 Word 裡調過圖片大小之後用）")
+    ap.add_argument("docx", help="要重算的剪報 .docx")
+    args = ap.parse_args()
+    sys.exit(0 if repaginate(args.docx) else 1)

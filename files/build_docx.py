@@ -394,6 +394,32 @@ def add_info_table(doc, proto_tbl, media, date, reporter):
     return tbl
 
 
+# 每個類別第一則的標題上會插一個書籤，事後重算頁碼時靠它認出「這一類從這裡開始」。
+# 使用者在 Word 裡調完圖片大小後版面會變，頁碼得重新量一次，那時手上只有這個
+# .docx，沒有當初的 sections，只能從檔案本身把類別邊界找回來。
+SECTION_BOOKMARK = "obank_sec_"
+
+
+def add_bookmark(para, name: str, bid: int):
+    """在段落開頭插一個 Word 書籤。
+
+    書籤不顯示、不佔位、不影響排版，使用者編輯內容也不會把它弄掉。
+    位置要在 pPr 之後 —— pPr 必須是段落的第一個子元素，插到它前面 Word 會抱怨。
+    """
+    start = para._p.makeelement(qn("w:bookmarkStart"), {})
+    start.set(qn("w:id"), str(bid))
+    start.set(qn("w:name"), name)
+    end = para._p.makeelement(qn("w:bookmarkEnd"), {})
+    end.set(qn("w:id"), str(bid))
+
+    ppr = para._p.find(qn("w:pPr"))
+    if ppr is not None:
+        ppr.addnext(start)
+    else:
+        para._p.insert(0, start)
+    para._p.append(end)
+
+
 def add_title(doc, proto_title, title: str):
     """標題也複製底稿的原段落，只換文字。
 
@@ -517,10 +543,12 @@ def add_image_placeholder(doc, url: str):
     run.bold = True
 
 
-def add_news_block(doc, art: dict, proto: "Proto", stats: dict, label: str = ""):
+def add_news_block(doc, art: dict, proto: "Proto", stats: dict, label: str = "",
+                   bookmark: tuple = None):
     """產生一則新聞：分頁 → 表格 → 留白 → 標題 → 圖片 → 內文（順序見實檔量測）。
 
     label 是所在類別，決定內文用哪一組標記規則。
+    bookmark 是 (書籤名, 編號)，只有每一類的第一則會給，用途見 SECTION_BOOKMARK。
     """
     add_page_break(doc)
     add_info_table(doc, proto.table,
@@ -528,7 +556,9 @@ def add_news_block(doc, art: dict, proto: "Proto", stats: dict, label: str = "")
                    art.get("date", ""),
                    art.get("reporter") or DEFAULT_REPORTER)
     add_table_gap(doc, proto.gap)
-    add_title(doc, proto.title, art.get("title", ""))
+    title_p = add_title(doc, proto.title, art.get("title", ""))
+    if bookmark:
+        add_bookmark(title_p, *bookmark)
 
     # 圖片：集團新聞是本機檔，網路新聞是網址
     local = art.get("image_path")
@@ -593,11 +623,13 @@ def build(template, articles, group_articles, out_path, date_label):
 
     stats = {"則數": 0, "圖片成功": 0, "圖片待補": 0, "本來就無圖": 0,
              "標記": Counter()}
-    for label, items in sections:
+    for si, (label, items) in enumerate(sections):
         print(f"\n【{label}】{len(items)} 則")
-        for art in items:
+        for i, art in enumerate(items):
             print(f"  - {art.get('title', '')[:34]}")
-            add_news_block(doc, art, proto, stats, label)
+            # 每一類的第一則插書籤，事後重算頁碼要用
+            mark = (f"{SECTION_BOOKMARK}{si}", 9000 + si) if i == 0 else None
+            add_news_block(doc, art, proto, stats, label, bookmark=mark)
             stats["則數"] += 1
 
     out_path = Path(out_path)

@@ -63,6 +63,25 @@ fi
 # ── 2. 決定要處理哪封信 ──────────────────────────────────────
 EML="${1:-}"
 
+# 拖進來的是剪報 .docx，代表「我在 Word 裡改過了，幫我重算頁碼」。
+# 調圖片大小會讓版面整個位移，產出當下算的頁碼就不準了。
+case "$EML" in
+    *.docx)
+        echo "${BOLD}重算封面頁碼${OFF}  $(basename "$EML")"
+        echo
+        cd "$CODE" || die "進不去 $CODE"
+        if "$PY" paginate.py "$EML"; then
+            echo
+            echo "${GREEN}${BOLD}✓ 頁碼已更新${OFF}"
+            osascript -e "tell application \"Microsoft Word\" to close (every document whose name is \"$(basename "$EML")\") saving no" >/dev/null 2>&1
+            open "$EML"
+        else
+            die "重算失敗" "上面的訊息就是原因。"
+        fi
+        finish 0
+        ;;
+esac
+
 if [ -z "$EML" ]; then
     # 沒指定就抓 Downloads 裡最新的一封榮董新聞
     EML="$(ls -t "$HOME/Downloads/"*榮董新聞*.eml 2>/dev/null | head -1)"
@@ -81,8 +100,9 @@ fi
 
 case "$EML" in
     *.eml) ;;
-    *) die "這不是 .eml 檔：$(basename "$EML")" \
-           "要的是信件檔，不是附件的 .docx。" ;;
+    *) die "認不得這個檔：$(basename "$EML")" \
+           "拖信件的 .eml 進來 = 產出剪報；" \
+           "拖剪報的 .docx 進來 = 重算封面頁碼。" ;;
 esac
 
 echo "信件：$(basename "$EML")"

@@ -4,6 +4,7 @@
 # 用法（平常不用自己下，雙擊桌面的「每日剪報」就好）:
 #     .\run_clipping.ps1                  # 自動找「下載」裡最新的信件
 #     .\run_clipping.ps1 某封信.eml        # 指定信件
+#     .\run_clipping.ps1 某份剪報.docx     # 只重算封面頁碼（校對時改過圖片大小之後）
 #
 # 這支腳本負責「讓非工程師也能跑」的雜事：
 #   顧好虛擬環境 → 找到信件 → 呼叫 main.py → 開啟成品
@@ -93,6 +94,38 @@ function Get-DownloadsPath {
 
 $downloads = Get-DownloadsPath
 
+# 拖進來的是剪報 .docx，代表「我在 Word 裡改過了，幫我重算頁碼」。
+# 調圖片大小會讓後面的內容整個位移，產出當下量的頁碼就不準了，而且不會有提示。
+if ($Eml -and [IO.Path]::GetExtension($Eml).ToLower() -eq '.docx') {
+    if (-not (Test-Path -LiteralPath $Eml -PathType Leaf)) { Die "找不到檔案：$Eml" }
+    $doc = (Resolve-Path -LiteralPath $Eml).Path
+    Write-Host "重算封面頁碼  $([IO.Path]::GetFileName($doc))"
+    Write-Host ''
+
+    # Word 開著這個檔就會鎖成獨佔，寫不回去，先關掉那一份
+    try {
+        $word = [Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application')
+        for ($i = $word.Documents.Count; $i -ge 1; $i--) {
+            $d = $word.Documents.Item($i)
+            if ($d.FullName -eq $doc) {
+                Write-Host "  先關掉 Word 裡開著的「$($d.Name)」"
+                $d.Close(0)
+            }
+        }
+    } catch {}
+
+    Push-Location $CODE
+    & $PY 'paginate.py' $doc
+    $code = $LASTEXITCODE
+    Pop-Location
+    if ($code -ne 0) { Die '重算失敗' @('上面的訊息就是原因。') }
+
+    Write-Host ''
+    Write-Host 'V 頁碼已更新' -ForegroundColor Green
+    Invoke-Item -LiteralPath $doc
+    Finish 0
+}
+
 if (-not $Eml) {
     # 沒指定就抓「下載」裡最新的一封榮董新聞
     $newest = Get-ChildItem -Path $downloads -Filter '*榮董新聞*.eml' -File -ErrorAction SilentlyContinue |
@@ -128,7 +161,9 @@ if (-not (Test-Path -LiteralPath $Eml -PathType Leaf)) {
     Die "找不到檔案：$Eml"
 }
 if ([IO.Path]::GetExtension($Eml).ToLower() -ne '.eml') {
-    Die "這不是 .eml 檔：$([IO.Path]::GetFileName($Eml))" @('要的是信件檔，不是附件的 .docx。')
+    Die "認不得這個檔：$([IO.Path]::GetFileName($Eml))" @(
+        '拖信件的 .eml 進來 = 產出剪報；',
+        '拖剪報的 .docx 進來 = 重算封面頁碼。')
 }
 
 $Eml = (Resolve-Path -LiteralPath $Eml).Path
